@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YOLO11 Webcam Drowning Detector</title>
+
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      transition: background 0.3s ease;
+    }
+
+    /* 🔴 Alert mode flashes the background red */
+    body.alert {
+      background: #800000;
+    }
+
+    #container {
+      position: relative;
+      width: 640px;
+      height: 480px;
+    }
+
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    #info {
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+
+    /* 🚨 Alert banner */
+    #alert-banner {
+      margin-top: 15px;
+      padding: 10px 20px;
+      background: #ff3333;
+      color: #fff;
+      font-weight: bold;
+      font-size: 1.2rem;
+      border-radius: 4px;
+      display: none;
+    }
+
+    /* 🔊 Enable sound button */
+    button#enable-sound {
+      margin-top: 10px;
+      padding: 8px 12px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Webcam YOLO11 Small - Drowning Detector</h1>
+
+  <div id="container">
+    <video id="video" width="640" height="480" autoplay muted playsinline></video>
+    <canvas id="overlay" width="640" height="480"></canvas>
+  </div>
+
+  <div id="info">Starting...</div>
+
+  <!-- 🚨 Alert banner -->
+  <div id="alert-banner">POSSIBLE DROWNING DETECTED</div>
+
+  <!-- 🔊 Sound enable button -->
+  <button id="enable-sound">Enable sound alerts</button>
+
+  <!-- 🔈 Alarm sound -->
+  <audio id="alarm-sound" src="alarm.mp3" preload="auto"></audio>
+
+  <script>
+    const API_URL = "/predict";
+
+    // Change this to EXACTLY the class name from your dataset
+    const DROWNING_CLASS = "drowning";     
+    const DROWNING_CONF_THRESHOLD = 0.50;  
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("overlay");
+    const ctx = canvas.getContext("2d");
+    const info = document.getElementById("info");
+
+    const alertBanner = document.getElementById("alert-banner");
+    const enableSoundBtn = document.getElementById("enable-sound");
+    const alarmSound = document.getElementById("alarm-sound");
+
+    let streaming = false;
+    let lastRequestTime = 0;
+    const SEND_EVERY_MS = 500; // send frame every 0.5 sec
+
+    let soundEnabled = false;
+    let lastDrowning = false;
+
+    console.log("Script loaded — initializing webcam…");
+
+    // 🔊 Must click to enable sound (browser rule)
+    enableSoundBtn.addEventListener("click", () => {
+      soundEnabled = true;
+
+      // Preload audio
+      alarmSound.play().then(() => {
+        alarmSound.pause();
+        alarmSound.currentTime = 0;
+      }).catch(() => {});
+
+      enableSoundBtn.textContent = "Sound alerts enabled";
+    });
+
+    // 🎥 Setup webcam
+    async function setupWebcam() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error("getUserMedia not supported.");
+        info.textContent = "Error: Browser does not support webcam access.";
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+          audio: false
+        });
+
+        console.log("Got webcam stream.");
+        video.srcObject = stream;
+
+        video.onloadedmetadata = () => {
+          video.play();
+          streaming = true;
+          info.textContent = "Webcam active. Sending frames…";
+          requestAnimationFrame(loop);
+        };
+
+      } catch (err) {
+        console.error("Webcam error:", err);
+        info.textContent = "Webcam error: " + err.message;
+      }
+    }
+
+    // 🎯 Draw YOLO boxes
+    function drawDetections(detections) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 2;
+      ctx.font = "14px sans-serif";
+
+      detections.forEach(det => {
+        const x1 = det.x1;
+        const y1 = det.y1;
+        const x2 = det.x2;
+        const y2 = det.y2;
+
+        ctx.strokeStyle = "lime";
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+        const label = `${det.class_name} ${(det.conf * 100).toFixed(1)}%`;
+        const textWidth = ctx.measureText(label).width;
+
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(x1, y1 - 18, textWidth + 6, 18);
+
+        ctx.fillStyle = "white";
+        ctx.fillText(label, x1 + 3, y1 - 5);
+      });
+    }
+
+    // 🚨 Trigger visual + audio alert
+    function updateAlert(isDrowning) {
+      if (isDrowning) {
+        document.body.classList.add("alert");
+        alertBanner.style.display = "block";
+
+        if (!lastDrowning) {
+          console.log("🚨 DROWNING ALERT TRIGGERED");
+
+          if (soundEnabled) {
+            alarmSound.currentTime = 0;
+            alarmSound.play().catch(err => console.log("Audio play error:", err));
+
+            // Optional spoken alert
+            if ("speechSynthesis" in window) {
+              const msg = new SpeechSynthesisUtterance("Possible drowning detected.");
+              speechSynthesis.speak(msg);
+            }
+          }
+        }
+      } else {
+        document.body.classList.remove("alert");
+        alertBanner.style.display = "none";
+      }
+
+      lastDrowning = isDrowning;
+    }
+
+    // 📤 Send frame to Flask
+    async function sendFrame() {
+      if (!streaming) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const dataURL = canvas.toDataURL("image/jpeg", 0.7);
+
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: dataURL })
+        });
+
+        const result = await res.json();
+        const detections = result.detections || [];
+
+        drawDetections(detections);
+
+        // Check for drowning class
+        const drowningNow = detections.some(det =>
+          det.class_name === DROWNING_CLASS &&
+          det.conf >= DROWNING_CONF_THRESHOLD
+        );
+
+        updateAlert(drowningNow);
+
+        info.textContent = `Detections: ${detections.length} | ${result.inference_time_ms?.toFixed(1) || '?'} ms`;
+
+      } catch (err) {
+        console.error("Frame send error:", err);
+        info.textContent = "Error sending frame.";
+      }
+    }
+
+    function loop(timestamp) {
+      if (timestamp - lastRequestTime > SEND_EVERY_MS) {
+        lastRequestTime = timestamp;
+        sendFrame();
+      }
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("load", setupWebcam);
+  </script>
+
+</body>
+</html>

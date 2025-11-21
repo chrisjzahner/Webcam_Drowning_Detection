@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model files (if too large, consider Git LFS)
+# best.pt  # Uncomment if you want to exclude the model file
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+
