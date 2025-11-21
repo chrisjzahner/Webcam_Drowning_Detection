@@ -13,7 +13,7 @@ A real-time webcam-based drowning detection system using YOLO11 and Flask.
 
 1. Install dependencies:
 ```bash
-python -m pip install ultralytics flask opencv-python numpy
+python -m pip install -r requirements.txt
 ```
 
 2. Place your YOLO model file (`best.pt`) in the project directory
@@ -36,4 +36,5 @@ python server.py
 - `index.html` - Web interface for webcam detection
 - `best.pt` - YOLO model file
 - `alarm.mp3` - Alert sound file
+- `requirements.txt` - Python dependencies
 
