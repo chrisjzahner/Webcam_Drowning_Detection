@@ -30,3 +30,11 @@ Thumbs.db
 .env
 .env.local
 
+# SSL Certificates (should not be committed)
+cert.pem
+key.pem
+
+# Model files (if too large, consider Git LFS)
+*.pt
+best_m_200.pt
+
