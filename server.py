@@ -8,12 +8,18 @@ import time
 app = Flask(__name__)
 
 # Load model
-MODEL_PATH = "best.pt"
+print("Loading model...")
+MODEL_PATH = "best_m_200.pt"
 model = YOLO(MODEL_PATH)
+print("Model loaded, moving to CPU...")
 model.to("cpu")
+print("Model ready!")
 
-CONF_THRESHOLD = 0.4
+CONF_THRESHOLD = 0.5
 IOU_THRESHOLD = 0.45
+
+# Drowning-specific confidence threshold (higher to reduce false positives)
+DROWNING_CONF_THRESHOLD = 0.65
 
 # ---------------------------
 # ROUTE 1: SERVE INDEX.HTML
@@ -56,6 +62,10 @@ def predict():
         cls_id = int(box.cls[0])
         cls_name = res.names[cls_id]
 
+        # Apply higher confidence threshold for drowning class
+        if cls_name.lower() == "drowning" and conf < DROWNING_CONF_THRESHOLD:
+            continue  # Skip this detection if confidence is too low
+
         detections.append({
             "x1": xyxy[0],
             "y1": xyxy[1],
@@ -76,4 +86,29 @@ def predict():
 # START SERVER
 # ---------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    import os
+    import ssl
+    
+    # Check if SSL certificates exist
+    cert_file = "cert.pem"
+    key_file = "key.pem"
+    
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        # Create SSL context
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(cert_file, key_file)
+            
+            print("🔒 Starting server with HTTPS on port 5000")
+            print("   Access at: https://192.168.86.81:5000")
+            print("   ⚠️  You'll see a security warning - click 'Advanced' then 'Proceed'")
+            app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=context, threaded=True, use_reloader=False)
+        except Exception as e:
+            print(f"Error with SSL: {e}")
+            print("Falling back to HTTP...")
+            app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    else:
+        print("⚠️  SSL certificates not found. Running without HTTPS.")
+        print("   To enable HTTPS (required for iOS), run: python generate_cert.py")
+        print("   Then restart the server.")
+        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
